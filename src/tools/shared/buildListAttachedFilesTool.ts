@@ -23,12 +23,26 @@ export function buildListAttachedFilesTool(ctl: ToolsProviderController) {
             const excelFiles = excelFileRegistry.getAll(workingDir);
             const docFiles = docFileRegistry.getAll(workingDir);
 
+            // Excel and doc files live in separate stores but share ONE eviction budget
+            // (fileRegistry.ts) — both registries report the same used/max here, so
+            // only one needs to be read.
+            const capacity = excelFileRegistry.getCapacity();
+            // Conversations are evicted least-recently-used-first once the shared budget
+            // fills up — surfaced here so the model can warn the user if this
+            // conversation is at risk of losing its file attachments.
+            const capacityNote =
+                `(Conversation slots remaining across all conversations before older, inactive ` +
+                `conversations' attachments are evicted: ${capacity.max - capacity.used} of ${capacity.max}.)`;
+
             if (excelFiles.length === 0 && docFiles.length === 0) {
-                return "No files are currently attached to this conversation.";
+                return `No files are currently attached to this conversation.\n\n${capacityNote}`;
             }
 
             const adapted = adaptFromTool(ctl, toolCtx, configSchematics);
             const lines: string[] = [];
+
+            const totalFiles = excelFiles.length + docFiles.length;
+            lines.push(`${totalFiles} file${totalFiles === 1 ? "" : "s"} attached to this conversation.`);
 
             if (excelFiles.length > 0) {
                 const excelLines = await Promise.all(
@@ -44,6 +58,7 @@ export function buildListAttachedFilesTool(ctl: ToolsProviderController) {
                 lines.push(...docLines);
             }
 
+            lines.push(capacityNote);
             return lines.join("\n");
         },
     });

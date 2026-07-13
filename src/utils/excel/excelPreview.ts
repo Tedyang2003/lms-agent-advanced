@@ -1,11 +1,11 @@
 import type { FileHandle } from "@lmstudio/sdk";
 import { getOrCreateDb, queryAll } from "../../tools/excel/buildExcelTools";
+import { EXCEL_PREVIEW_CACHE_MAX } from "../../constants";
 
-const MAX_CACHE_ENTRIES = 50;
 const previewCache = new Map<string, string>();
 
 function cachePreview(key: string, preview: string): void {
-    if (previewCache.size >= MAX_CACHE_ENTRIES && !previewCache.has(key)) {
+    if (previewCache.size >= EXCEL_PREVIEW_CACHE_MAX && !previewCache.has(key)) {
         const oldestKey = previewCache.keys().next().value;
         if (oldestKey !== undefined) previewCache.delete(oldestKey);
     }

@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { createWorker } from "tesseract.js";
 import type { Parser } from "./parserTypes";
 import { configSchematics } from "../../../config";
+import { OCR_MIN_TEXT_LENGTH, OCR_MAX_PAGES, OCR_PAGE_TIMEOUT_MS } from "../../../constants";
 
 let cacheMupdf: typeof import("mupdf") | null = null;
 
@@ -12,10 +13,6 @@ async function getMupdf() {
     }
     return cacheMupdf;
 }
-
-export const MIN_TEXT_LENGTH = 50;
-const OCR_MAX_PAGES = 50;
-const OCR_PAGE_TIMEOUT_MS = 30_000;
 
 function cleanText(text: string): string {
     return text.replace(/\s+/g, " ").replace(/\n+/g, "\n").trim();
@@ -108,7 +105,7 @@ async function runOcr(
         }
 
         const fullText = cleanText(textParts.join("\n"));
-        if (fullText.length >= MIN_TEXT_LENGTH) {
+        if (fullText.length >= OCR_MIN_TEXT_LENGTH) {
             return { success: true, text: fullText };
         }
         return { success: false, reason: "ocr-empty" };
@@ -125,7 +122,7 @@ export const ocrPdfParser: Parser = {
         return enabled && file.name.toLowerCase().endsWith(".pdf");
     },
     shouldSkip: (previous) =>
-        previous?.success === true && previous.content.trim().length >= MIN_TEXT_LENGTH,
+        previous?.success === true && previous.content.trim().length >= OCR_MIN_TEXT_LENGTH,
     async parse(file, ctx) {
         const status = ctx.ctl.createStatus({
             status: "loading",
