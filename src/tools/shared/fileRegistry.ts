@@ -1,22 +1,22 @@
 import type { FileHandle } from "@lmstudio/sdk";
 import { FILE_REGISTRY_MAX_CONVERSATIONS } from "../../constants";
 
-// Excel and doc files each need their own conversationKey -> fileName -> FileHandle
-// store (separate below) so a spreadsheet and a document can share the same
-// fileName without colliding. They share ONE eviction budget, though —
-// FILE_REGISTRY_MAX_CONVERSATIONS conversations tracked in total across BOTH
-// kinds of files, not that many per kind (which would silently allow double
-// the intended memory footprint).
+// Structured-data (spreadsheet/CSV/JSON) and doc files each need their own
+// conversationKey -> fileName -> FileHandle store (separate below) so a data
+// file and a document can share the same fileName without colliding. They
+// share ONE eviction budget, though — FILE_REGISTRY_MAX_CONVERSATIONS
+// conversations tracked in total across BOTH kinds of files, not that many
+// per kind (which would silently allow double the intended memory footprint).
 export interface FileRegistry {
     register(conversationKey: string, file: FileHandle): void;
     lookup(conversationKey: string, fileName: string): FileHandle | undefined;
     getAll(conversationKey: string): FileHandle[];
     // Reflects the SHARED budget below, not a per-registry one — both
-    // excelFileRegistry and docFileRegistry report the same numbers.
+    // structuredDataRegistry and docFileRegistry report the same numbers.
     getCapacity(): { used: number; max: number };
 }
 
-const excelStore = new Map<string, Map<string, FileHandle>>();
+const structuredDataStore = new Map<string, Map<string, FileHandle>>();
 const docStore = new Map<string, Map<string, FileHandle>>();
 
 // Shared LRU order across both stores. Map iteration order follows insertion
@@ -35,7 +35,7 @@ function touchConversation(conversationKey: string): void {
         const oldestKey = conversationOrder.keys().next().value;
         if (oldestKey !== undefined) {
             conversationOrder.delete(oldestKey);
-            excelStore.delete(oldestKey);
+            structuredDataStore.delete(oldestKey);
             docStore.delete(oldestKey);
         }
     }
@@ -65,5 +65,5 @@ function createFileRegistry(store: Map<string, Map<string, FileHandle>>): FileRe
     };
 }
 
-export const excelFileRegistry = createFileRegistry(excelStore);
+export const structuredDataRegistry = createFileRegistry(structuredDataStore);
 export const docFileRegistry = createFileRegistry(docStore);

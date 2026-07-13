@@ -1,37 +1,37 @@
 import { tool, type ToolsProviderController } from "@lmstudio/sdk";
 import { z } from "zod";
-import { getOrCreateDb, queryAll } from "./buildExcelTools";
-import { runExcelSubAgent } from "./excelSubAgent";
-import { excelFileRegistry } from "../shared/fileRegistry";
+import { getOrCreateDb, queryAll } from "./buildStructuredDataTools";
+import { runStructuredDataSubAgent } from "./structuredDataSubAgent";
+import { structuredDataRegistry } from "../shared/fileRegistry";
 import { adaptFromTool } from "../../utils/shared/pluginCtl";
 import { configSchematics } from "../../config";
-import { EXCEL_QUERY_TOOL_DESCRIPTION } from "../../prompts/excel";
-import { EXCEL_SCHEMA_CACHE_MAX } from "../../constants";
+import { STRUCTURED_DATA_QUERY_TOOL_DESCRIPTION } from "../../prompts/structuredData";
+import { STRUCTURED_DATA_SCHEMA_CACHE_MAX } from "../../constants";
 
 // The schema summary is a deterministic snapshot of the file's structure (columns,
 // unit/summary-row warnings) — it doesn't change across repeated questions against
 // the same file within a session, so recomputing it via a fresh DuckDB scan on every
-// query_excel_data call is pure waste. Keyed the same way as dbCache in buildExcelTools.ts.
+// query_structured_data call is pure waste. Keyed the same way as dbCache in buildStructuredDataTools.ts.
 const schemaSummaryCache = new Map<string, string>();
 
 function cacheSchemaSummary(key: string, summary: string): void {
-    if (schemaSummaryCache.size >= EXCEL_SCHEMA_CACHE_MAX && !schemaSummaryCache.has(key)) {
+    if (schemaSummaryCache.size >= STRUCTURED_DATA_SCHEMA_CACHE_MAX && !schemaSummaryCache.has(key)) {
         const oldestKey = schemaSummaryCache.keys().next().value;
         if (oldestKey !== undefined) schemaSummaryCache.delete(oldestKey);
     }
     schemaSummaryCache.set(key, summary);
 }
 
-export function buildExcelQueryTool(ctl: ToolsProviderController) {
+export function buildStructuredDataQueryTool(ctl: ToolsProviderController) {
     return tool({
-        name: "query_excel_data",
-        description: EXCEL_QUERY_TOOL_DESCRIPTION,
+        name: "query_structured_data",
+        description: STRUCTURED_DATA_QUERY_TOOL_DESCRIPTION,
         parameters: {
             question: z.string().describe("The user's data question, verbatim or lightly cleaned up."),
-            fileName: z.string().describe("The exact filename of the spreadsheet to query, e.g. 'npu_vs_cpu_test.xlsx'."),
+            fileName: z.string().describe("The exact filename of the spreadsheet/CSV/JSON file to query, e.g. 'npu_vs_cpu_test.xlsx'."),
         },
         implementation: async ({ question, fileName }: { question: string; fileName: string }, toolCtx) => {
-            const file = excelFileRegistry.lookup(ctl.getWorkingDirectory(), fileName);
+            const file = structuredDataRegistry.lookup(ctl.getWorkingDirectory(), fileName);
             if (!file) {
                 return (
                     `Error: no file named "${fileName}" is currently registered for this conversation. ` +
@@ -124,7 +124,7 @@ export function buildExcelQueryTool(ctl: ToolsProviderController) {
             }
 
             adapted.debug(schemaSummary);
-            const { trace, answer } = await runExcelSubAgent(adapted, {
+            const { trace, answer } = await runStructuredDataSubAgent(adapted, {
                 question,
                 targetFiles: [file],
                 schemaSummary,

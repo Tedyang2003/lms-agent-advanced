@@ -4,10 +4,10 @@ import * as path from "path";
 import { pathToFileURL } from "url";
 import { AsyncDuckDB, VoidLogger, selectBundle } from "@duckdb/duckdb-wasm";
 import Worker from "web-worker";
-import { loadExcelIntoDuckDb, getSampleRows, sanitizeTableName, type DuckHandle } from "../../utils/excel/loadExcel";
+import { loadStructuredDataIntoDuckDb, getSampleRows, sanitizeTableName, type DuckHandle } from "../../utils/structuredData/loadStructuredData";
 import { type PluginCapableCtl } from "../../utils/shared/pluginCtl";
-import { LIST_SPREADSHEET_TABLES_DESCRIPTION, QUERY_SPREADSHEET_DESCRIPTION } from "../../prompts/excel";
-import { EXCEL_DB_CACHE_MAX } from "../../constants";
+import { LIST_TABLES_DESCRIPTION, QUERY_TABLE_DESCRIPTION } from "../../prompts/structuredData";
+import { STRUCTURED_DATA_DB_CACHE_MAX } from "../../constants";
 
 const dbCache = new Map<string, DuckHandle>();
 
@@ -71,10 +71,10 @@ function closeHandle(handle: DuckHandle): void {
         .catch(() => {});
 }
 
-// Evicts the oldest entry once the cache grows past EXCEL_DB_CACHE_MAX, closing
-// its DuckDB connection/worker so handles don't leak.
+// Evicts the oldest entry once the cache grows past STRUCTURED_DATA_DB_CACHE_MAX,
+// closing its DuckDB connection/worker so handles don't leak.
 function cacheDb(key: string, handle: DuckHandle): void {
-    if (dbCache.size >= EXCEL_DB_CACHE_MAX && !dbCache.has(key)) {
+    if (dbCache.size >= STRUCTURED_DATA_DB_CACHE_MAX && !dbCache.has(key)) {
         const oldestKey = dbCache.keys().next().value;
         if (oldestKey !== undefined) {
             const oldest = dbCache.get(oldestKey);
@@ -119,13 +119,13 @@ export async function getOrCreateDb(file: FileHandle): Promise<DuckHandle> {
     const db = await instantiateDuckDb();
     const conn = await db.connect();
     const handle: DuckHandle = { db, conn };
-    // loadExcelIntoDuckDb needs external file access (it loads via read_json_auto
-    // from a file registered in DuckDB-WASM's virtual filesystem) — so it must
-    // run BEFORE we seal the database.
-    await loadExcelIntoDuckDb(handle, file);
+    // loadStructuredDataIntoDuckDb needs external file access (it loads via
+    // read_json_auto from a file registered in DuckDB-WASM's virtual
+    // filesystem) — so it must run BEFORE we seal the database.
+    await loadStructuredDataIntoDuckDb(handle, file);
 
     // Seal the database before it's ever exposed to LLM-generated SQL. This is the
-    // real security boundary for query_spreadsheet: enable_external_access=false
+    // real security boundary for query_table: enable_external_access=false
     // makes DuckDB itself refuse ATTACH/COPY/read_csv/read_parquet/etc. regardless
     // of what the SQL text looks like, and lock_configuration=true stops a crafted
     // query from re-enabling it. SQL_DENYLIST below is now defense-in-depth only,
@@ -154,18 +154,18 @@ export async function queryAll(handle: DuckHandle, sql: string): Promise<Record<
 const SQL_DENYLIST =
     /\b(read_csv|read_csv_auto|read_json|read_json_auto|read_parquet|read_text|read_blob|glob|sniff_csv|attach|copy|export|import|install|load|pragma_database_list)\b/i;
 
-// Builds the SUB-AGENT's tools (list_spreadsheet_tables, query_spreadsheet) —
-// these are what excelSubAgent.ts calls internally, NOT what the main model sees.
-export async function buildExcelTools(excelFiles: FileHandle[], ctl?: PluginCapableCtl) {
-    if (excelFiles.length !== 1) {
-        throw new Error("buildExcelTools currently expects exactly one target file.");
+// Builds the SUB-AGENT's tools (list_tables, query_table) —
+// these are what structuredDataSubAgent.ts calls internally, NOT what the main model sees.
+export async function buildStructuredDataTools(structuredFiles: FileHandle[], ctl?: PluginCapableCtl) {
+    if (structuredFiles.length !== 1) {
+        throw new Error("buildStructuredDataTools currently expects exactly one target file.");
     }
-    const file = excelFiles[0];
+    const file = structuredFiles[0];
     const db = await getOrCreateDb(file);
 
     const listTables = tool({
-        name: "list_spreadsheet_tables",
-        description: LIST_SPREADSHEET_TABLES_DESCRIPTION,
+        name: "list_tables",
+        description: LIST_TABLES_DESCRIPTION,
         parameters: {},
         implementation: async () => {
             const tables = await queryAll(
@@ -177,7 +177,7 @@ export async function buildExcelTools(excelFiles: FileHandle[], ctl?: PluginCapa
             // column's distinct/null count is independent of every other column's —
             // queryAll opens its own DuckDB connection per call, so these are safe
             // to run concurrently instead of one at a time (pure DB latency, not
-            // LLM-bound, but still real wall-clock time on every list_spreadsheet_tables call).
+            // LLM-bound, but still real wall-clock time on every list_tables call).
             const out = await Promise.all(tables.map(async (t) => {
                 const tableName = t.table_name as string;
                 const [sampleRows, allProfiles, [{ total_rows }], [{ exact_dupes }]] = await Promise.all([
@@ -222,12 +222,12 @@ export async function buildExcelTools(excelFiles: FileHandle[], ctl?: PluginCapa
 
 
     const queryData = tool({
-        name: "query_spreadsheet",
-        description: QUERY_SPREADSHEET_DESCRIPTION,
+        name: "query_table",
+        description: QUERY_TABLE_DESCRIPTION,
         parameters: {
             sql: z.string(),
         },
-        implementation: withLogging("query_spreadsheet", async ({ sql }) => {
+        implementation: withLogging("query_table", async ({ sql }) => {
             const clean = sql.trim().toLowerCase();
             if (!clean.startsWith("select") && !clean.startsWith("with")) {
                 return "Error: only SELECT or WITH queries are permitted.";

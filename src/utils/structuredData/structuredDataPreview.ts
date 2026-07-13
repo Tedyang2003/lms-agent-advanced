@@ -1,18 +1,18 @@
 import type { FileHandle } from "@lmstudio/sdk";
-import { getOrCreateDb, queryAll } from "../../tools/excel/buildExcelTools";
-import { EXCEL_PREVIEW_CACHE_MAX } from "../../constants";
+import { getOrCreateDb, queryAll } from "../../tools/structuredData/buildStructuredDataTools";
+import { STRUCTURED_DATA_PREVIEW_CACHE_MAX } from "../../constants";
 
 const previewCache = new Map<string, string>();
 
 function cachePreview(key: string, preview: string): void {
-    if (previewCache.size >= EXCEL_PREVIEW_CACHE_MAX && !previewCache.has(key)) {
+    if (previewCache.size >= STRUCTURED_DATA_PREVIEW_CACHE_MAX && !previewCache.has(key)) {
         const oldestKey = previewCache.keys().next().value;
         if (oldestKey !== undefined) previewCache.delete(oldestKey);
     }
     previewCache.set(key, preview);
 }
 
-export async function makeExcelPreview(file: FileHandle): Promise<string> {
+export async function makeStructuredDataPreview(file: FileHandle): Promise<string> {
     // Keyed by identifier (unique per upload), not file.name — two different
     // uploads sharing a filename must not collide or serve each other's preview.
     const cached = previewCache.get(file.identifier);

@@ -8,7 +8,7 @@ import type {
  * Normalized capability surface usable from either the preprocessor path
  * (PromptPreprocessorController) or a tool-call path (ToolsProviderController
  * + per-call toolCtx). Different callers need different subsets — retrieval
- * needs getConfigValue/addCitations, excel just needs client/abortSignal/status —
+ * needs getConfigValue/addCitations, structured-data just needs client/abortSignal/status —
  * but everything goes through this one shape so adapters live in one place.
  */
 export interface PluginCapableCtl {
