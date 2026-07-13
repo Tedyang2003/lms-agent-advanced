@@ -1,0 +1,6 @@
+.lmstudio
+node_modules
+*.wav
+*.trained_data
+eng.traineddata
+.claude

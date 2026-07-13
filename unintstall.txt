@@ -1,0 +1,2 @@
+"play-sound"
+npm install --save-dev @types/play-sound
