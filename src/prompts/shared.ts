@@ -1,12 +1,12 @@
 export const LIST_ATTACHED_FILES_DESCRIPTION =
-    `Lists every spreadsheet and document currently attached to this conversation, with a short ` +
-    `preview of each. Call this if you're unsure what files are attached, forgot the exact ` +
-    `fileName, or a user reference ("that file," "the spreadsheet") doesn't clearly match ` +
-    `anything earlier in the conversation — do not guess a fileName from memory. Whenever you call ` +
-    `this tool, always state two things from the result in your reply to the user, not just the ` +
-    `previews: (1) how many files they have attached now (e.g. "you have 3 files attached"), and ` +
-    `(2) how many more remain available from the result's capacity note (e.g. "98 of 100 slots ` +
-    `remain").`;
+    `Lists every spreadsheet/CSV/JSON data file and document currently attached to this ` +
+    `conversation, with a short preview of each. Call this if you're unsure what files are ` +
+    `attached, forgot the exact fileName, or a user reference ("that file," "the spreadsheet") ` +
+    `doesn't clearly match anything earlier in the conversation — do not guess a fileName from ` +
+    `memory. Whenever you call this tool, always state two things from the result in your reply to ` +
+    `the user, not just the previews: (1) how many files they have attached now (e.g. "you have 3 ` +
+    `files attached"), and (2) how many more remain available from the result's capacity note ` +
+    `(e.g. "7 of 8 slots remain").`;
 
 export const CLARIFYING_QUESTION_DESCRIPTION =
     `Ask the user a clarifying question when their request is genuinely ambiguous and no ` +
@@ -17,7 +17,7 @@ export const CLARIFYING_QUESTION_DESCRIPTION =
 export const CLARIFICATION_RECORDED_MESSAGE =
     "Clarification recorded. Stop here — do not attempt to answer further this turn.";
 
-// Shared between both sub-agents (excelSubAgent.ts, docSubAgent.ts) so the clarification
+// Shared between both sub-agents (structuredDataSubAgent.ts, docSubAgent.ts) so the clarification
 // answer format can never drift out of sync between them.
 export const CLARIFICATION_PREFIX = "I need more information to answer this:";
 

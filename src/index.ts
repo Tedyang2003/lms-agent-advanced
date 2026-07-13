@@ -1,11 +1,11 @@
 import { type PluginContext, type ToolsProviderController } from "@lmstudio/sdk";
 import { configSchematics } from "./config";
 import { preprocess } from "./promptPreprocessor";
-import { buildExcelQueryTool } from "./tools/excel/buildExcelQueryTool";
+import { buildStructuredDataQueryTool } from "./tools/structuredData/buildStructuredDataQueryTool";
 import { buildDocQueryTool } from "./tools/docs/buildDocQueryTool";
 import { buildListAttachedFilesTool } from "./tools/shared/buildListAttachedFilesTool";
 import { buildDatetimeTool } from "./tools/shared/buildDatetimeTool";
-import { closeAllDatabases } from "./tools/excel/buildExcelTools";
+import { closeAllDatabases } from "./tools/structuredData/buildStructuredDataTools";
 
 // Cached DuckDB connections hold native handles that can keep this process
 // alive past a normal exit request. If the process doesn't die on its own
@@ -35,18 +35,18 @@ export async function main(context: PluginContext) {
 
     // Preprocessor now only registers files + announces their existence via
     // a short tag — no eager content injection, no consumeFiles, no history
-    // dependency. Both excel and doc data retrieval are fully tool-driven.
+    // dependency. Both structured-data and doc data retrieval are fully tool-driven.
     context.withPromptPreprocessor(preprocess);
 
-    // Both excel and doc querying are tools the main model decides whether
-    // to call — not forced every turn. Registered unconditionally; each
+    // Both structured-data and doc querying are tools the main model decides
+    // whether to call — not forced every turn. Registered unconditionally; each
     // tool's implementation looks up its own registry (keyed by working
     // directory) to find files, independent of history/consumeFiles state.
     context.withToolsProvider(async (ctl: ToolsProviderController) => {
-        const excelTool = buildExcelQueryTool(ctl);
+        const structuredDataTool = buildStructuredDataQueryTool(ctl);
         const docTool = buildDocQueryTool(ctl);
         const listFilesTool = buildListAttachedFilesTool(ctl);
         const datetimeTool = buildDatetimeTool();
-        return [excelTool, docTool, listFilesTool, datetimeTool].filter(Boolean);
+        return [structuredDataTool, docTool, listFilesTool, datetimeTool].filter(Boolean);
     });
 }

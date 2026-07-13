@@ -1,0 +1,6 @@
+Model,Hardware,TTFT,2nd Token Latency,2nd Token Tps
+Qwen3-8B-int4-cw-ov,NPU,4583.14 ms,105.27 ms/token,9.50 tokens/s
+Qwen3-8B-int4-cw-ov,CPU,155.93 ms,90.30 ms/token,11.07 tokens/s
+Mistral-7B-Instruct-v0.3-int4-cw-ov,NPU,4707.05 ms,0.088 s/token,11.36 tokens/s
+Mistral-7B-Instruct-v0.3-int4-cw-ov,CPU,164.35 ms,80.31 ms/token,12.45 tokens/s
+Average,,,,11.10 tokens/s

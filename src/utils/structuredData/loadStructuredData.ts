@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import * as crypto from "crypto";
+import { readFile } from "node:fs/promises";
 import type { AsyncDuckDB, AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import type { FileHandle } from "@lmstudio/sdk";
 
@@ -196,102 +197,155 @@ function tableRowsFromBlock(
     });
 }
 
-export async function loadExcelIntoDuckDb(handle: DuckHandle, file: FileHandle): Promise<void> {
-    const filePath = await file.getFilePath();
-    const workbook = XLSX.readFile(filePath);
+/**
+ * Cleans, loads, and indexes one table's worth of row objects into DuckDB —
+ * shared by every loader (Excel/CSV's per-sheet tables, JSON's single table)
+ * so the blank-row filtering, source_row provenance, and numeric-unit-column
+ * derivation logic lives in exactly one place.
+ */
+async function insertRowsAsTable(
+    handle: DuckHandle,
+    tableName: string,
+    rawRows: { sourceRow: number; data: Record<string, unknown> }[],
+): Promise<void> {
+    if (rawRows.length === 0) return; // nothing to load, read_json_auto errors on empty input
 
-    // DuckDB-WASM has no real OS filesystem access — sheet data is staged as
+    // Drop fully-blank rows (common as visual separators in spreadsheets) and
+    // trim whitespace on every string cell / header. source_row is attached
+    // AFTER the blank check below so it can't itself keep an otherwise-blank
+    // row alive (it's always populated, unlike the source's real columns).
+    const cleanedRows: Record<string, unknown>[] = rawRows
+        .map(({ sourceRow, data }) => {
+            const cleaned: Record<string, unknown> = {};
+            for (const key of Object.keys(data)) {
+                cleaned[sanitizeColumnName(key)] = trimIfString(data[key]);
+            }
+            return { cleaned, sourceRow };
+        })
+        .filter(({ cleaned }) => Object.values(cleaned).some((v) => v !== null && v !== ""))
+        .map(({ cleaned, sourceRow }) => ({ ...cleaned, source_row: sourceRow }));
+
+    if (cleanedRows.length === 0) return;
+
+    // DuckDB-WASM has no real OS filesystem access — row data is staged as
     // JSONL text in its virtual filesystem instead of a real temp file, then
-    // dropped once every sheet/table has been loaded into a real table.
-    const registeredFiles: string[] = [];
+    // dropped once loaded into a real table.
+    const vpath = `${crypto.randomUUID()}.jsonl`;
+    const lines = cleanedRows.map((r) => JSON.stringify(r)).join("\n");
+    await handle.db.registerFileText(vpath, lines);
 
     try {
-        for (const sheetName of workbook.SheetNames) {
-            const worksheet = workbook.Sheets[sheetName];
-            const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1");
-            const rawGrid = XLSX.utils.sheet_to_json<unknown[]>(worksheet, {
-                header: 1,
-                defval: null,
-                raw: true,
-                blankrows: true, // preserve blank rows — they're the signal used to detect table boundaries
-            });
-            // sheet_to_json's array output is in row order starting at the sheet's
-            // used range, so grid index i corresponds to spreadsheet row range.s.r + i.
-            const grid: GridRow[] = rawGrid.map((cells, i) => ({ cells, sourceRow: range.s.r + i + 1 }));
+        await run(handle, `CREATE TABLE "${tableName}" AS SELECT * FROM read_json_auto('${vpath}')`);
 
-            const baseTableName = sanitizeTableName(sheetName);
-            const detectedTables = splitSheetIntoTables(grid);
+        // For any text column that's uniformly "<number><unit>" (e.g. "4583.14 ms",
+        // "9.50 tokens/s"), add a derived DOUBLE column so the model can sort/aggregate
+        // numerically instead of doing string comparisons on unit-suffixed text.
+        const columnNames = Object.keys(cleanedRows[0]).filter((c) => c !== "source_row");
+        for (const col of columnNames) {
+            const sampleValues = cleanedRows.map((r) => r[col]);
+            if (!looksNumericWithUnit(sampleValues)) continue;
 
-            for (let tableIndex = 0; tableIndex < detectedTables.length; tableIndex++) {
-                const { headers, colOffset, rows } = detectedTables[tableIndex];
-                const rawRows = tableRowsFromBlock(headers, colOffset, rows);
+            const numericCol = `${col}_numeric`;
+            await run(handle, `ALTER TABLE "${tableName}" ADD COLUMN "${numericCol}" DOUBLE`);
 
-                if (rawRows.length === 0) continue; // skip empty sheets, read_json_auto errors on empty input
+            // Update row by row using rowid-free approach: rebuild via a CASE-free
+            // UPDATE using regexp_extract, which DuckDB supports natively and is
+            // both correct and fast (no need to loop in JS). Thousands separators
+            // are stripped first since regexp_extract only pulls the numeric part.
+            await run(
+                handle,
+                `UPDATE "${tableName}"
+                 SET "${numericCol}" = TRY_CAST(regexp_extract(replace("${col}", ',', ''), '-?[0-9]+(\\.[0-9]+)?') AS DOUBLE)`
+            );
 
-                // Drop fully-blank rows (common as visual separators in spreadsheets) and
-                // trim whitespace on every string cell / header. source_row is attached
-                // AFTER the blank check below so it can't itself keep an otherwise-blank
-                // row alive (it's always populated, unlike the sheet's real columns).
-                const cleanedRows = rawRows
-                    .map(({ sourceRow, data }) => {
-                        const cleaned: Record<string, unknown> = {};
-                        for (const key of Object.keys(data)) {
-                            cleaned[sanitizeColumnName(key)] = trimIfString(data[key]);
-                        }
-                        return { cleaned, sourceRow };
-                    })
-                    .filter(({ cleaned }) => Object.values(cleaned).some((v) => v !== null && v !== ""))
-                    .map(({ cleaned, sourceRow }) => ({ ...cleaned, source_row: sourceRow }));
-
-                if (cleanedRows.length === 0) continue;
-
-                const vpath = `${crypto.randomUUID()}.jsonl`;
-                const lines = cleanedRows.map((r) => JSON.stringify(r)).join("\n");
-                await handle.db.registerFileText(vpath, lines);
-                registeredFiles.push(vpath);
-
-                const tableName = tableIndex === 0 ? baseTableName : `${baseTableName}_${tableIndex + 1}`;
-                await run(handle, `CREATE TABLE "${tableName}" AS SELECT * FROM read_json_auto('${vpath}')`);
-
-                // For any text column that's uniformly "<number><unit>" (e.g. "4583.14 ms",
-                // "9.50 tokens/s"), add a derived DOUBLE column so the model can sort/aggregate
-                // numerically instead of doing string comparisons on unit-suffixed text.
-                const columnNames = Object.keys(cleanedRows[0]).filter((c) => c !== "source_row");
-                for (const col of columnNames) {
-                    const sampleValues = cleanedRows.map((r) => r[col]);
-                    if (!looksNumericWithUnit(sampleValues)) continue;
-
-                    const numericCol = `${col}_numeric`;
-                    await run(handle, `ALTER TABLE "${tableName}" ADD COLUMN "${numericCol}" DOUBLE`);
-
-                    // Update row by row using rowid-free approach: rebuild via a CASE-free
-                    // UPDATE using regexp_extract, which DuckDB supports natively and is
-                    // both correct and fast (no need to loop in JS). Thousands separators
-                    // are stripped first since regexp_extract only pulls the numeric part.
-                    await run(
-                        handle,
-                        `UPDATE "${tableName}"
-                         SET "${numericCol}" = TRY_CAST(regexp_extract(replace("${col}", ',', ''), '-?[0-9]+(\\.[0-9]+)?') AS DOUBLE)`
-                    );
-
-                    // If the column mixes units (some rows "ms", others "s"), the bare
-                    // "_numeric" value alone is numerically valid but semantically wrong to
-                    // compare across rows — add a "_unit" twin so the model can check it.
-                    if (hasMixedUnits(sampleValues)) {
-                        const unitCol = `${col}_unit`;
-                        await run(handle, `ALTER TABLE "${tableName}" ADD COLUMN "${unitCol}" VARCHAR`);
-                        await run(
-                            handle,
-                            `UPDATE "${tableName}"
-                             SET "${unitCol}" = regexp_extract("${col}", '[a-zA-Z/%]+$')`
-                        );
-                    }
-                }
+            // If the column mixes units (some rows "ms", others "s"), the bare
+            // "_numeric" value alone is numerically valid but semantically wrong to
+            // compare across rows — add a "_unit" twin so the model can check it.
+            if (hasMixedUnits(sampleValues)) {
+                const unitCol = `${col}_unit`;
+                await run(handle, `ALTER TABLE "${tableName}" ADD COLUMN "${unitCol}" VARCHAR`);
+                await run(
+                    handle,
+                    `UPDATE "${tableName}"
+                     SET "${unitCol}" = regexp_extract("${col}", '[a-zA-Z/%]+$')`
+                );
             }
         }
     } finally {
-        await handle.db.dropFiles(registeredFiles);
+        await handle.db.dropFiles([vpath]);
     }
+}
+
+/** Handles .xlsx/.xls/.xlsm/.csv — the `xlsx` library parses CSV into the same
+ *  worksheet shape as a real workbook, so no separate CSV-specific path is needed. */
+export async function loadWorkbookIntoDuckDb(handle: DuckHandle, file: FileHandle): Promise<void> {
+    const filePath = await file.getFilePath();
+    const workbook = XLSX.readFile(filePath);
+
+    for (const sheetName of workbook.SheetNames) {
+        const worksheet = workbook.Sheets[sheetName];
+        const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1");
+        const rawGrid = XLSX.utils.sheet_to_json<unknown[]>(worksheet, {
+            header: 1,
+            defval: null,
+            raw: true,
+            blankrows: true, // preserve blank rows — they're the signal used to detect table boundaries
+        });
+        // sheet_to_json's array output is in row order starting at the sheet's
+        // used range, so grid index i corresponds to spreadsheet row range.s.r + i.
+        const grid: GridRow[] = rawGrid.map((cells, i) => ({ cells, sourceRow: range.s.r + i + 1 }));
+
+        const baseTableName = sanitizeTableName(sheetName);
+        const detectedTables = splitSheetIntoTables(grid);
+
+        for (let tableIndex = 0; tableIndex < detectedTables.length; tableIndex++) {
+            const { headers, colOffset, rows } = detectedTables[tableIndex];
+            const rawRows = tableRowsFromBlock(headers, colOffset, rows);
+            const tableName = tableIndex === 0 ? baseTableName : `${baseTableName}_${tableIndex + 1}`;
+            await insertRowsAsTable(handle, tableName, rawRows);
+        }
+    }
+}
+
+/** Handles .json — expects a top-level array of flat objects (a single object is
+ *  treated as a one-row array). Nested/non-tabular JSON is rejected with a clear
+ *  error rather than silently producing a nonsensical table. */
+export async function loadJsonIntoDuckDb(handle: DuckHandle, file: FileHandle): Promise<void> {
+    const filePath = await file.getFilePath();
+    const text = await readFile(filePath, "utf-8");
+
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(text);
+    } catch (e) {
+        throw new Error(`"${file.name}" is not valid JSON: ${(e as Error).message}`);
+    }
+
+    const items = Array.isArray(parsed) ? parsed : [parsed];
+    if (items.length === 0) {
+        throw new Error(`"${file.name}" contains an empty array — nothing to load.`);
+    }
+    const nonObjectIndex = items.findIndex(
+        (item) => typeof item !== "object" || item === null || Array.isArray(item),
+    );
+    if (nonObjectIndex !== -1) {
+        throw new Error(
+            `"${file.name}" must be a flat array of objects (or a single object) to be queried as a ` +
+            `table — element ${nonObjectIndex} is not a plain object.`,
+        );
+    }
+
+    const rawRows = items.map((data, i) => ({ sourceRow: i + 1, data: data as Record<string, unknown> }));
+    const tableName = sanitizeTableName(file.name.replace(/\.json$/i, ""));
+    await insertRowsAsTable(handle, tableName, rawRows);
+}
+
+/** Dispatches to the right loader by extension — the single entry point tools should call. */
+export async function loadStructuredDataIntoDuckDb(handle: DuckHandle, file: FileHandle): Promise<void> {
+    if (file.name.toLowerCase().endsWith(".json")) {
+        return loadJsonIntoDuckDb(handle, file);
+    }
+    return loadWorkbookIntoDuckDb(handle, file);
 }
 
 /** Small helper reused by the tools file to show the model real example rows. */

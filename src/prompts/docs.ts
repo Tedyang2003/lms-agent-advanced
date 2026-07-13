@@ -1,5 +1,6 @@
 export const DOC_QUERY_TOOL_DESCRIPTION =
-    `Get information from a SPECIFIC attached document (pdf, docx, txt) by exact fileName — not spreadsheets. ` +
+    `Get information from a SPECIFIC attached document (pdf, docx, txt) by exact fileName — not ` +
+    `spreadsheets, CSV, or JSON data files. ` +
     `This tool's question is sent to a sub-agent with no view of this conversation: write it fully ` +
     `self-contained, including any relevant criteria or context, not implicit references.`;
 

@@ -5,7 +5,7 @@ import { buildClarifyingQuestionTool } from "../shared/clarifyingQuestionTool";
 import { buildDocSubAgentSystemPrompt, DOC_SUBAGENT_RETRY_LOG_MESSAGE, DOC_SUBAGENT_RETRY_USER_MESSAGE } from "../../prompts/docs";
 import { CLARIFICATION_PREFIX } from "../../prompts/shared";
 
-// Same error-sniffing convention as excelSubAgent.ts — lets the retry loop
+// Same error-sniffing convention as structuredDataSubAgent.ts — lets the retry loop
 // tell "called the tool" apart from "called the tool, got an error back, and
 // reported that as the answer".
 const TOOL_ERROR_PREFIX = /^(error:|sql error:)/i;

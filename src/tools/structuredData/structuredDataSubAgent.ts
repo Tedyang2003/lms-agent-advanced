@@ -1,13 +1,13 @@
 
 import type { FileHandle, LLM, Tool, ChatMessageInput, PredictionResult } from "@lmstudio/sdk";
-import { buildExcelTools } from "./buildExcelTools";
+import { buildStructuredDataTools } from "./buildStructuredDataTools";
 import { buildClarifyingQuestionTool } from "../shared/clarifyingQuestionTool";
 import { type PluginCapableCtl } from "../../utils/shared/pluginCtl";
-import { buildExcelSubAgentSystemPrompt, EXCEL_SUBAGENT_RETRY_LOG_MESSAGE, EXCEL_SUBAGENT_RETRY_USER_MESSAGE } from "../../prompts/excel";
+import { buildStructuredDataSubAgentSystemPrompt, STRUCTURED_DATA_SUBAGENT_RETRY_LOG_MESSAGE, STRUCTURED_DATA_SUBAGENT_RETRY_USER_MESSAGE } from "../../prompts/structuredData";
 import { CLARIFICATION_PREFIX } from "../../prompts/shared";
 
-// Matches the error-response prefixes query_spreadsheet actually returns
-// (buildExcelTools.ts) — lets the retry loop tell "called the tool" apart
+// Matches the error-response prefixes query_table actually returns
+// (buildStructuredDataTools.ts) — lets the retry loop tell "called the tool" apart
 // from "called the tool, got an error back, and reported that as the answer".
 const TOOL_ERROR_PREFIX = /^(error:|sql error:)/i;
 
@@ -55,7 +55,7 @@ async function runOnce(model: LLM, history: ChatMessageInput[], tools: Tool[], c
                     log.push(`Step: calling ${name}(${argsPreview})`);
                 }
             }
-            ctl.debug("Excel Sub Agent Processed the following", log);
+            ctl.debug("Structured Data Sub Agent Processed the following", log);
         },
         onPredictionCompleted: (result: PredictionResult) => {
             if (result.content.trim().length > 0) {
@@ -70,19 +70,19 @@ async function runOnce(model: LLM, history: ChatMessageInput[], tools: Tool[], c
     return { finalAnswer, sawToolCall, lastToolResultWasError, lastToolResult };
 }
 
-export async function runExcelSubAgent(
+export async function runStructuredDataSubAgent(
     ctl: PluginCapableCtl,
     args: { question: string; targetFiles: FileHandle[]; schemaSummary: string },
 ): Promise<{ trace: string; answer: string }> {
     const { question, targetFiles, schemaSummary } = args;
 
-    const dataTools = await buildExcelTools(targetFiles, ctl);
+    const dataTools = await buildStructuredDataTools(targetFiles, ctl);
     const clarification = buildClarifyingQuestionTool();
     const tools = [...dataTools, clarification.tool];
     const model = await ctl.client.llm.model();
     const log: string[] = [];
 
-    const systemPrompt = buildExcelSubAgentSystemPrompt(schemaSummary);
+    const systemPrompt = buildStructuredDataSubAgentSystemPrompt(schemaSummary);
 
     let history: ChatMessageInput[] = [
         { role: "system", content: systemPrompt },
@@ -107,14 +107,14 @@ export async function runExcelSubAgent(
     // one extra chance, instead of needing a second retry to learn about the
     // clarification option.
     if (!sawToolCall || lastToolResultWasError || !finalAnswer.trim()) {
-        log.push(EXCEL_SUBAGENT_RETRY_LOG_MESSAGE);
+        log.push(STRUCTURED_DATA_SUBAGENT_RETRY_LOG_MESSAGE);
         history = [
             { role: "system", content: systemPrompt },
             { role: "user", content: question },
             { role: "assistant", content: finalAnswer },
             {
                 role: "user",
-                content: EXCEL_SUBAGENT_RETRY_USER_MESSAGE,
+                content: STRUCTURED_DATA_SUBAGENT_RETRY_USER_MESSAGE,
             },
         ];
         ({ finalAnswer, sawToolCall, lastToolResultWasError, lastToolResult } = await runOnce(model, history, tools, ctl, log));
@@ -139,13 +139,13 @@ export async function runExcelSubAgent(
         return {
             trace: log.join("\n"),
             answer:
-                `The sub-agent queried the spreadsheet successfully but did not phrase a written answer. ` +
+                `The sub-agent queried the data successfully but did not phrase a written answer. ` +
                 `Raw query result:\n${bestToolResult}`,
         };
     }
 
     return {
         trace: log.join("\n"),
-        answer: "No result was returned from the spreadsheet query.",
+        answer: "No result was returned from the query.",
     };
 }
