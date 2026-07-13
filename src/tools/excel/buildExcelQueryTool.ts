@@ -6,8 +6,8 @@ import { excelFileRegistry } from "../shared/fileRegistry";
 import { adaptFromTool } from "../../utils/shared/pluginCtl";
 import { configSchematics } from "../../config";
 import { EXCEL_QUERY_TOOL_DESCRIPTION } from "../../prompts/excel";
+import { EXCEL_SCHEMA_CACHE_MAX } from "../../constants";
 
-const MAX_SCHEMA_CACHE_ENTRIES = 50;
 // The schema summary is a deterministic snapshot of the file's structure (columns,
 // unit/summary-row warnings) — it doesn't change across repeated questions against
 // the same file within a session, so recomputing it via a fresh DuckDB scan on every
@@ -15,7 +15,7 @@ const MAX_SCHEMA_CACHE_ENTRIES = 50;
 const schemaSummaryCache = new Map<string, string>();
 
 function cacheSchemaSummary(key: string, summary: string): void {
-    if (schemaSummaryCache.size >= MAX_SCHEMA_CACHE_ENTRIES && !schemaSummaryCache.has(key)) {
+    if (schemaSummaryCache.size >= EXCEL_SCHEMA_CACHE_MAX && !schemaSummaryCache.has(key)) {
         const oldestKey = schemaSummaryCache.keys().next().value;
         if (oldestKey !== undefined) schemaSummaryCache.delete(oldestKey);
     }

@@ -7,8 +7,8 @@ import Worker from "web-worker";
 import { loadExcelIntoDuckDb, getSampleRows, sanitizeTableName, type DuckHandle } from "../../utils/excel/loadExcel";
 import { type PluginCapableCtl } from "../../utils/shared/pluginCtl";
 import { LIST_SPREADSHEET_TABLES_DESCRIPTION, QUERY_SPREADSHEET_DESCRIPTION } from "../../prompts/excel";
+import { EXCEL_DB_CACHE_MAX } from "../../constants";
 
-const MAX_CACHE_ENTRIES = 50;
 const dbCache = new Map<string, DuckHandle>();
 
 // DuckDB-WASM's local bundle files — resolved once at module scope (cheap path
@@ -71,10 +71,10 @@ function closeHandle(handle: DuckHandle): void {
         .catch(() => {});
 }
 
-// Evicts the oldest entry once the cache grows past MAX_CACHE_ENTRIES, closing
+// Evicts the oldest entry once the cache grows past EXCEL_DB_CACHE_MAX, closing
 // its DuckDB connection/worker so handles don't leak.
 function cacheDb(key: string, handle: DuckHandle): void {
-    if (dbCache.size >= MAX_CACHE_ENTRIES && !dbCache.has(key)) {
+    if (dbCache.size >= EXCEL_DB_CACHE_MAX && !dbCache.has(key)) {
         const oldestKey = dbCache.keys().next().value;
         if (oldestKey !== undefined) {
             const oldest = dbCache.get(oldestKey);

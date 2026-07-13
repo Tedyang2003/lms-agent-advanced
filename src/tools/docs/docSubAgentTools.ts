@@ -5,8 +5,7 @@ import { type PluginCapableCtl } from "../../utils/shared/pluginCtl";
 import { parseFile } from "../../utils/docs/parser/parseFile";
 import { embedCustomParsedFiles } from "../../utils/docs/retrieval/embedCustomParsedFiles";
 import { buildSearchDocumentChunksDescription, buildGetFullDocumentTextDescription } from "../../prompts/docs";
-
-const FULL_TEXT_CHAR_CAP = 10000;
+import { DOC_FULL_TEXT_CHAR_CAP } from "../../constants";
 
 /**
  * Builds the two tools the doc sub-agent chooses between:
@@ -77,10 +76,10 @@ export function buildDocSubAgentTools(ctl: PluginCapableCtl, file: FileHandle) {
         implementation: async () => {
             const parsed = await parseFile(ctl, file);
             const cleaned = parsed.content;
-            if (cleaned.length <= FULL_TEXT_CHAR_CAP) {
+            if (cleaned.length <= DOC_FULL_TEXT_CHAR_CAP) {
                 return cleaned;
             }
-            return cleaned.slice(0, FULL_TEXT_CHAR_CAP) + "\n\n(...document truncated, content continues beyond this point...)";
+            return cleaned.slice(0, DOC_FULL_TEXT_CHAR_CAP) + "\n\n(...document truncated, content continues beyond this point...)";
         },
     });
 

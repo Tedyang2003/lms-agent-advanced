@@ -2,17 +2,17 @@ import type { FileHandle, PromptPreprocessorController } from "@lmstudio/sdk";
 import type { ParsedFile } from "../../../types/types";
 import { createDefaultChain } from "./parserIndex";
 import { type PluginCapableCtl } from "../../shared/pluginCtl";
+import { DOC_PARSE_CACHE_MAX } from "../../../constants";
 
 
-const MAX_CACHE_ENTRIES = 50;
 // Keyed by file.identifier (unique per upload) rather than path/name, so a
 // re-uploaded file with the same name but new content gets its own cache slot
 // instead of silently returning the previous upload's parsed text.
 export const globalCache = new Map<string, ParsedFile>();
 const chain = createDefaultChain();
 
-function cacheParsed(key: string, parsed: ParsedFile): void {
-    if (globalCache.size >= MAX_CACHE_ENTRIES && !globalCache.has(key)) {
+function cacheParsed(key: string, parsed: ParsedFile): void { // penis
+    if (globalCache.size >= DOC_PARSE_CACHE_MAX && !globalCache.has(key)) {
         const oldestKey = globalCache.keys().next().value;
         if (oldestKey !== undefined) globalCache.delete(oldestKey);
     }
