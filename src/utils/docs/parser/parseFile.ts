@@ -11,7 +11,7 @@ import { DOC_PARSE_CACHE_MAX } from "../../../constants";
 export const globalCache = new Map<string, ParsedFile>();
 const chain = createDefaultChain();
 
-function cacheParsed(key: string, parsed: ParsedFile): void { // penis
+function cacheParsed(key: string, parsed: ParsedFile): void { 
     if (globalCache.size >= DOC_PARSE_CACHE_MAX && !globalCache.has(key)) {
         const oldestKey = globalCache.keys().next().value;
         if (oldestKey !== undefined) globalCache.delete(oldestKey);
@@ -36,12 +36,8 @@ export async function parseFile(
     const result = await chain.run(file, { ctl, filePath });
 
     const parsed: ParsedFile = result.success
-        ? {
-            content: result.content,
-            ocrApplied: result.parserName === "ocr-pdf",
-            customParsed: result.isCustomExtraction,
-        }
-        : { content: "", ocrApplied: false, customParsed: false };
+        ? { content: result.content }
+        : { content: "" };
 
     cacheParsed(file.identifier, parsed);
 

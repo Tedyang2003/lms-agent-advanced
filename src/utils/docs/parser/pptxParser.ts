@@ -110,10 +110,6 @@ async function extractPptxText(
 export const pptxTextParser: Parser = {
     name: "pptx-text",
     canParse: (file) => file.name.toLowerCase().endsWith(".pptx"),
-    // skip if lmStudioParser (or whatever ran before) already got a substantial result —
-    // this only exists to backfill when the general-purpose parser came up short on pptx
-    shouldSkip: (previous) =>
-        previous?.success === true && previous.content.trim().length >= 50,
     async parse(file, ctx) {
         const status = ctx.ctl.createStatus({
             status: "loading",

@@ -28,32 +28,22 @@ export function buildDocSubAgentTools(ctl: PluginCapableCtl, file: FileHandle) {
             const retrievalLimit = ctl.getConfigValue("retrievalLimit");
             const retrievalAffinityThreshold = ctl.getConfigValue("retrievalAffinityThreshold");
 
-            // Files that went through our own parser chain (OCR fallback, pptx, etc.)
-            // have no extractable text as far as the SDK's native retriever is
-            // concerned — it never sees the recovered content. Route those through
-            // our own chunk-embedding pipeline instead of the SDK's file retrieval.
+            // Always route through our own chunk-embedding pipeline (cosine similarity)
+            // rather than the SDK's native file retrieval, so every file — regardless of
+            // which parser produced its text — is scored on the same scale. Mixing the
+            // SDK's own (undocumented) retrieval score with our cosine similarity meant
+            // retrievalAffinityThreshold could behave inconsistently across files.
             const parsed = await parseFile(ctl, file);
-
-            let rawEntries: Array<{ content: string; score: number }>;
-            if (parsed.customParsed) {
-                rawEntries = await embedCustomParsedFiles(
-                    ctl,
-                    query,
-                    [{ file, content: parsed.content }],
-                    model,
-                );
-            } else {
-                const result = await ctl.client.files.retrieve(query, [file], {
-                    embeddingModel: model,
-                    limit: retrievalLimit,
-                    signal: ctl.abortSignal,
-                });
-                rawEntries = result.entries;
-            }
+            const rawEntries = await embedCustomParsedFiles(
+                ctl,
+                query,
+                [{ file, content: parsed.content }],
+                model,
+            );
 
             const entries = rawEntries
-                .filter((e: any) => e.score > retrievalAffinityThreshold)
-                .sort((a: any, b: any) => b.score - a.score)
+                .filter((e) => e.score > retrievalAffinityThreshold)
+                .sort((a, b) => b.score - a.score)
                 .slice(0, retrievalLimit);
 
             if (entries.length === 0) {

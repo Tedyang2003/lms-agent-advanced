@@ -10,7 +10,13 @@ export class ParserChain {
   }
 
   async run(file: FileHandle, ctx: ParseContext): Promise<ParseResult> {
+    // lastResult is what shouldSkip inspects — "did the parser immediately
+    // before me already produce a good-enough result?" bestSuccess is what
+    // we actually return — the most recent SUCCESS seen, so that a later
+    // parser's failure (e.g. OCR finding too little text and reporting
+    // failure) can't erase an earlier parser's successful-but-thin result.
     let lastResult: ParseResult | undefined;
+    let bestSuccess: ParseResult | undefined;
 
     for (const parser of this.parsers) {
       const applicable = await parser.canParse(file, ctx);
@@ -23,11 +29,12 @@ export class ParserChain {
       lastResult = result;
 
       if (result.success) {
-        return result;
+        bestSuccess = result;
+      } else {
+        ctx.ctl.debug(`[ParserChain] '${parser.name}' failed for ${file.name}: ${result.reason}`);
       }
-      ctx.ctl.debug(`[ParserChain] '${parser.name}' failed for ${file.name}: ${result.reason}`);
     }
 
-    return lastResult ?? { success: false, reason: "no-parser-matched" };
+    return bestSuccess ?? lastResult ?? { success: false, reason: "no-parser-matched" };
   }
 }

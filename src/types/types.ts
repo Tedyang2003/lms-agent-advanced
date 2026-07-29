@@ -8,8 +8,6 @@ export type CachedChunk = {
 export type DocumentContextInjectionStrategy = "none" | "inject-full-content" | "retrieval";
 export type ParsedFile = {
     content: string;
-    ocrApplied: boolean;
-    customParsed: boolean;
     // Populated lazily by embedCustomParsedFiles.ts the first time this file's
     // chunks are embedded, then reused on every later query against it.
     cachedChunks?: CachedChunk[];
