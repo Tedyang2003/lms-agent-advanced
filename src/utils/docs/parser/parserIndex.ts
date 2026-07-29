@@ -2,6 +2,7 @@ import { ParserChain } from "./parserChain";
 import { lmStudioParser } from "./lmstudioParser";
 import { ocrPdfParser } from "./ocrPdfParser";
 import { pptxTextParser } from "./pptxParser";
+import { oneNoteParser } from "./oneNoteParser";
 
 // Registration order is priority order: ParserChain tries every applicable
 // parser (each one gated by its own canParse/shouldSkip), then returns the
@@ -22,6 +23,7 @@ import { pptxTextParser } from "./pptxParser";
 //   first attempt.
 export function createDefaultChain(): ParserChain {
   return new ParserChain()
+    .register(oneNoteParser)
     .register(pptxTextParser)
     .register(lmStudioParser)
     .register(ocrPdfParser);
