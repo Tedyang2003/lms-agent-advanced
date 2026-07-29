@@ -1,6 +1,6 @@
-## Agentic RAG & OCR Plugin
+## Agentic Multi-File Handling Plugin
 
-An LM Studio plugin that gives the main model **tool-driven, agentic access** to attached spreadsheets and documents — including scanned/flat PDFs — instead of dumping raw file content into the context window.
+An LM Studio plugin that gives the main model **tool-driven, agentic access** to attached files — spreadsheets and documents alike, including scanned/flat PDFs — instead of dumping raw file content into the context window. Rather than a single RAG or OCR pipeline, it's a multi-file handling system: each attached file is routed to the sub-agent and tooling suited to its type (SQL-backed querying for spreadsheets, retrieval/full-text for documents, OCR recovery when needed), so the model can work across several different files in the same conversation without confusing one for another.
 
 ### Introduction
 
