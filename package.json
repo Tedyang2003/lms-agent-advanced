@@ -13,15 +13,19 @@
   "dependencies": {
     "@duckdb/duckdb-wasm": "^1.32.0",
     "@lmstudio/sdk": "1.4.0",
+    "@tedyang2003/onenote-converter-wasm": "^1.0.0",
     "jszip": "^3.10.1",
     "mupdf": "^1.28.0",
     "tesseract.js": "^7.0.0",
+    "turndown": "^7.2.4",
+    "turndown-plugin-gfm": "^1.0.2",
     "web-worker": "^1.5.0",
     "xlsx": "^0.18.5",
     "zod": "3.24.1"
   },
   "devDependencies": {
     "@types/node": "^20.14.8",
-    "@types/tesseract.js": "^0.0.2"
+    "@types/tesseract.js": "^0.0.2",
+    "@types/turndown": "^5.0.6"
   }
 }

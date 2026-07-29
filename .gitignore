@@ -4,3 +4,4 @@ node_modules
 *.trained_data
 eng.traineddata
 .claude
+.npmrc
