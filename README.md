@@ -1,6 +1,6 @@
-## SAIC Agentic RAG & OCR Plugin
+## Agentic RAG & OCR Plugin
 
-An LM Studio plugin built for SAIC that gives the main model **tool-driven, agentic access** to attached spreadsheets and documents — including scanned/flat PDFs — instead of dumping raw file content into the context window.
+An LM Studio plugin that gives the main model **tool-driven, agentic access** to attached spreadsheets and documents — including scanned/flat PDFs — instead of dumping raw file content into the context window.
 
 ### Introduction
 
