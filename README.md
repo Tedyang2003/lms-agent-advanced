@@ -28,7 +28,10 @@ The main model never receives raw file content by default. It calls a tool with 
 Spreadsheets (`.xlsx`, `.xls`, `.xlsm`) are loaded into an in-memory DuckDB database. The sub-agent gets a deterministic schema summary — including warnings for text columns hiding numeric units, mixed-unit columns, and trailing "Total"/"Summary" rows — so it writes correct SQL instead of guessing.
 
 #### Document Sub-Agent (Semantic Retrieval + Full-Text)
-Documents are handled by a chain of parsers (LM Studio's native parser, a dedicated PPTX parser, and an OCR fallback for scanned PDFs). The sub-agent chooses between `search_document_chunks` (semantic vector search) for targeted questions and `get_full_document_text` for summarization/overview questions.
+Documents are handled by a chain of parsers (LM Studio's native parser, a dedicated PPTX parser, a OneNote (`.one`) parser, and an OCR fallback for scanned PDFs). The sub-agent chooses between `search_document_chunks` (semantic vector search) for targeted questions and `get_full_document_text` for summarization/overview questions.
+
+#### OneNote (`.one`) Support
+Individual OneNote section files are parsed via a purpose-built WASM module — compiled from Joplin's open-source OneNote converter and published separately as [`@tedyang2003/onenote-converter-wasm`](https://github.com/Tedyang2003/onenote-converter) — then converted to Markdown, preserving page order, heading hierarchy, and tables while stripping non-text elements (images, ink/drawings) to placeholders. Runs entirely in-process with no subprocess or network calls, consistent with this plugin's offline-first design.
 
 #### Intelligent OCR Fallback
 Scans the extractable text length of ingested PDFs. If a document looks like a flat image or scanned file, it triggers a local OCR pipeline (Tesseract) to recover the text before it's parsed or embedded.
@@ -74,7 +77,7 @@ Exposed via the plugin's config panel in LM Studio:
    ```bash
    npm run install-plugin
    ```
-   This runs `lms dev --install -y` and then `scripts/fix-install-assets.js`, which copies runtime assets that `lms dev --install` doesn't carry over on its own (DuckDB WASM binaries and `eng.traineddata`) into the installed plugin's directory.
+   This runs `lms dev --install -y` and then `scripts/fix-install-assets.js`, which copies runtime assets that `lms dev --install` doesn't carry over on its own (DuckDB WASM binaries, the OneNote WASM module, and `eng.traineddata`) into the installed plugin's directory.
 4. Open LM Studio, attach a spreadsheet or document to a chat, and ask a question about it. The model will call the appropriate tool automatically when relevant.
 5. To push local changes to LM Studio's plugin registry (if you have publishing access):
    ```bash

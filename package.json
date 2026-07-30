@@ -1,6 +1,6 @@
 {
   "name": "lms-plugin-rag-v1",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -13,7 +13,7 @@
   "dependencies": {
     "@duckdb/duckdb-wasm": "^1.32.0",
     "@lmstudio/sdk": "1.4.0",
-    "@tedyang2003/onenote-converter-wasm": "^1.0.0",
+    "@tedyang2003/onenote-converter-wasm": "^1.0.1",
     "jszip": "^3.10.1",
     "mupdf": "^1.28.0",
     "tesseract.js": "^7.0.0",
