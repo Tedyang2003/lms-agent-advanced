@@ -5,8 +5,13 @@
 //   living inside node_modules — included here on the same suspicion that made
 //   duckdb.node (its native-binding predecessor, before the duckdb-wasm migration)
 //   get dropped by whatever file-type filtering `lms dev --install` applies.
-//   UNVERIFIED: re-run `npm run install-plugin` and confirm the plugin's Excel
-//   tools still work after a real install before relying on this.
+// - onenote-converter-wasm's renderer_bg.wasm is the same category of asset —
+//   included here on the same suspicion, same as duckdb-wasm's .wasm files above.
+//   UNVERIFIED: re-run `npm run install-plugin` and confirm both the plugin's Excel
+//   tools AND OneNote (.one) parsing still work after a real install before relying
+//   on this. If OneNote parsing fails post-install, also check whether
+//   snippets/parser-utils-*/node_functions.js survived the install — it's a .js file
+//   so it should be fine, but that assumption hasn't been verified for this package.
 // This restores all of it after every install so the plugin doesn't crash/misbehave at runtime.
 const { execSync } = require("child_process");
 const fs = require("fs");
@@ -33,12 +38,14 @@ if (!fs.existsSync(installDir)) {
 }
 
 const DUCKDB_WASM_DIST = path.join("node_modules", "@duckdb", "duckdb-wasm", "dist");
+const ONENOTE_WASM_DIST = path.join("node_modules", "@tedyang2003", "onenote-converter-wasm");
 
 const relPaths = [
   path.join(DUCKDB_WASM_DIST, "duckdb-mvp.wasm"),
   path.join(DUCKDB_WASM_DIST, "duckdb-eh.wasm"),
   path.join(DUCKDB_WASM_DIST, "duckdb-node-mvp.worker.cjs"),
   path.join(DUCKDB_WASM_DIST, "duckdb-node-eh.worker.cjs"),
+  path.join(ONENOTE_WASM_DIST, "renderer_bg.wasm"),
   "eng.traineddata",
 ];
 
