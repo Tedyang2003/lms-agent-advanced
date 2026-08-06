@@ -1,6 +1,6 @@
 import { tool, type ToolsProviderController } from "@lmstudio/sdk";
 import { z } from "zod";
-import { getOrCreateDb, queryAll } from "./buildStructuredDataTools";
+import { getOrCreateDb, queryAll } from "./structuredDataAgentTools";
 import { runStructuredDataSubAgent } from "./structuredDataSubAgent";
 import { structuredDataRegistry } from "../shared/fileRegistry";
 import { adaptFromTool } from "../../utils/shared/pluginCtl";
@@ -11,7 +11,7 @@ import { STRUCTURED_DATA_SCHEMA_CACHE_MAX } from "../../constants";
 // The schema summary is a deterministic snapshot of the file's structure (columns,
 // unit/summary-row warnings) — it doesn't change across repeated questions against
 // the same file within a session, so recomputing it via a fresh DuckDB scan on every
-// query_structured_data call is pure waste. Keyed the same way as dbCache in buildStructuredDataTools.ts.
+// query_structured_data call is pure waste. Keyed the same way as dbCache in structuredDataAgentTools.ts.
 const schemaSummaryCache = new Map<string, string>();
 
 function cacheSchemaSummary(key: string, summary: string): void {

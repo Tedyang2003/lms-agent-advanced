@@ -11,7 +11,7 @@
 // concurrent conversations/files cached, and every cached entry competes
 // with the LLM itself for the same limited CPU/RAM.
 
-// --- Structured data (tools/structuredData/buildStructuredDataTools.ts, buildStructuredDataQueryTool.ts, utils/structuredData/structuredDataPreview.ts) ---
+// --- Structured data (tools/structuredData/structuredDataAgentTools.ts, buildStructuredDataQueryTool.ts, utils/structuredData/structuredDataPreview.ts) ---
 
 // Max cached DuckDB connections (each holds a live WASM worker thread) — kept
 // low since these are the most expensive entries here and a single user

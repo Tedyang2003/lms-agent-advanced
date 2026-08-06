@@ -5,7 +5,7 @@ import { buildStructuredDataQueryTool } from "./tools/structuredData/buildStruct
 import { buildDocQueryTool } from "./tools/docs/buildDocQueryTool";
 import { buildListAttachedFilesTool } from "./tools/shared/buildListAttachedFilesTool";
 import { buildDatetimeTool } from "./tools/shared/buildDatetimeTool";
-import { closeAllDatabases } from "./tools/structuredData/buildStructuredDataTools";
+import { closeAllDatabases } from "./tools/structuredData/structuredDataAgentTools";
 
 // Cached DuckDB connections hold native handles that can keep this process
 // alive past a normal exit request. If the process doesn't die on its own

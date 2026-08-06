@@ -62,3 +62,8 @@ export const STRUCTURED_DATA_SUBAGENT_RETRY_USER_MESSAGE =
     `text instead of calling the tool, reported a tool error as your answer, or gave no ` +
     `answer at all. If the question is ambiguous, call ask_clarifying_question now. ` +
     `Otherwise, call query_table now with a real query and use its actual result to answer.`;
+
+export const STRUCTURED_DATA_SUBAGENT_RETRY_USER_MESSAGE_MALFORMED_TOOL_CALL =
+    `Your previous tool call could not be parsed — it likely had invalid JSON or an incorrect ` +
+    `argument structure. Call query_table again now, using the exact tool name and valid JSON ` +
+    `arguments, e.g. {"sql": "SELECT ..."}.`;

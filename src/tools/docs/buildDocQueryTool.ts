@@ -20,7 +20,8 @@ export function buildDocQueryTool(ctl: ToolsProviderController) {
             if (!file) {
                 return `Error: no file named "${fileName}" is registered for this conversation.`;
             }
- 
+
+            // Flag CTL
             const adapted = adaptFromTool(ctl, toolCtx, configSchematics);
  
             const { trace, answer } = await runDocSubAgent(adapted, { question, file });

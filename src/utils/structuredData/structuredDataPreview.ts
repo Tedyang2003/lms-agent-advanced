@@ -1,5 +1,5 @@
 import type { FileHandle } from "@lmstudio/sdk";
-import { getOrCreateDb, queryAll } from "../../tools/structuredData/buildStructuredDataTools";
+import { getOrCreateDb, queryAll } from "../../tools/structuredData/structuredDataAgentTools";
 import { STRUCTURED_DATA_PREVIEW_CACHE_MAX } from "../../constants";
 
 const previewCache = new Map<string, string>();
