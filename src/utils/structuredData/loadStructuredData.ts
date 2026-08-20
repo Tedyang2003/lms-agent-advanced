@@ -1,8 +1,12 @@
 import * as XLSX from "xlsx";
 import * as crypto from "crypto";
+import * as path from "path";
 import { readFile } from "node:fs/promises";
-import type { AsyncDuckDB, AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
+import { pathToFileURL } from "url";
+import { AsyncDuckDB, VoidLogger, selectBundle, type AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
+import Worker from "web-worker";
 import type { FileHandle } from "@lmstudio/sdk";
+import { STRUCTURED_DATA_DB_CACHE_MAX } from "../../constants";
 
 // A DuckDB-WASM instance plus one persistent connection into it. The instance
 // (registerFileText/dropFiles) and the connection (query) are separate handles
@@ -11,6 +15,86 @@ import type { FileHandle } from "@lmstudio/sdk";
 export interface DuckHandle {
     db: AsyncDuckDB;
     conn: AsyncDuckDBConnection;
+}
+
+// DuckDB-WASM's local bundle files — resolved once at module scope (cheap path
+// math, no WASM loaded yet). MANUAL_BUNDLES (not getJsDelivrBundles()) keeps
+// bundle selection fully offline, since this plugin has to run in locked-down
+// environments with no outbound network access.
+const DUCKDB_DIST = path.dirname(require.resolve("@duckdb/duckdb-wasm"));
+const MANUAL_BUNDLES = {
+    mvp: {
+        mainModule: path.resolve(DUCKDB_DIST, "duckdb-mvp.wasm"),
+        mainWorker: path.resolve(DUCKDB_DIST, "duckdb-node-mvp.worker.cjs"),
+    },
+    eh: {
+        mainModule: path.resolve(DUCKDB_DIST, "duckdb-eh.wasm"),
+        mainWorker: path.resolve(DUCKDB_DIST, "duckdb-node-eh.worker.cjs"),
+    },
+};
+
+// Instantiates a fresh DuckDB-WASM engine (its own worker thread + compiled
+// .wasm module), lazily, on first actual query rather than at plugin module-load
+// time. The .wasm module is a multi-MB payload — eagerly loading it up front
+// would block the whole plugin's tool registration (the "loading tools..."
+// sidebar UI) the same way duckdb.node's native load used to before this
+// migration. mupdf already gets this same lazy treatment in ocrPdfParser.ts for
+// the same reason.
+export async function instantiateDuckDb(): Promise<AsyncDuckDB> {
+    const bundle = await selectBundle(MANUAL_BUNDLES);
+    if (!bundle.mainWorker) throw new Error("DuckDB-WASM bundle selection returned no worker script.");
+    // `type: "module"` sidesteps a Windows-path bug shared by the `web-worker`
+    // polyfill and duckdb-wasm's own bundled copy of it: their classic-worker
+    // code path runs the absolute worker path through `path.posix.normalize()`
+    // before treating it as a URL, which mangles "C:\..." paths and throws
+    // "The URL must be of scheme file". The ESM dynamic-import path instead
+    // round-trips it through `pathToFileURL` correctly.
+    const worker = new Worker(pathToFileURL(bundle.mainWorker).href, { type: "module" });
+    const db = new AsyncDuckDB(new VoidLogger(), worker);
+    await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+    return db;
+}
+
+const dbCache = new Map<string, DuckHandle>();
+
+function cacheKey(file: FileHandle): string {
+    return file.identifier;
+}
+
+// Closes a handle's connection then terminates its worker/WASM instance. Fire-
+// and-forget (not awaited by callers) — same as the eviction path before this
+// migration, which didn't wait on `.close()` either.
+function closeHandle(handle: DuckHandle): void {
+    handle.conn.close()
+        .then(() => handle.db.terminate())
+        .catch(() => {});
+}
+
+// Evicts the oldest entry once the cache grows past STRUCTURED_DATA_DB_CACHE_MAX,
+// closing its DuckDB connection/worker so handles don't leak.
+function cacheDb(key: string, handle: DuckHandle): void {
+    if (dbCache.size >= STRUCTURED_DATA_DB_CACHE_MAX && !dbCache.has(key)) {
+        const oldestKey = dbCache.keys().next().value;
+        if (oldestKey !== undefined) {
+            const oldest = dbCache.get(oldestKey);
+            if (oldest) closeHandle(oldest);
+            dbCache.delete(oldestKey);
+        }
+    }
+    dbCache.set(key, handle);
+}
+
+// Closes every cached DuckDB connection and clears the cache. Called on process
+// shutdown (see index.ts) so the plugin process can exit on its own promptly
+// instead of relying on LM Studio's forced-kill fallback, which needs a shell
+// and can fail in locked-down environments (e.g. AppLocker blocking cmd.exe).
+export async function closeAllDatabases(): Promise<void> {
+    const closes = Array.from(dbCache.values()).map(async (handle) => {
+        await handle.conn.close();
+        await handle.db.terminate();
+    });
+    dbCache.clear();
+    await Promise.all(closes);
 }
 
 export function sanitizeTableName(name: string): string {
@@ -31,9 +115,17 @@ async function run(handle: DuckHandle, sql: string): Promise<void> {
     await handle.conn.query(sql);
 }
 
-async function queryAll(handle: DuckHandle, sql: string): Promise<Record<string, unknown>[]> {
-    const table = await handle.conn.query(sql);
-    return table.toArray().map((row) => row.toJSON());
+// Opens its own connection per call (rather than reusing handle.conn) so
+// concurrent callers (e.g. list_tables profiling multiple columns at once)
+// don't serialize against each other or leave stray transaction state behind.
+export async function queryAll(handle: DuckHandle, sql: string): Promise<Record<string, unknown>[]> {
+    const conn = await handle.db.connect();
+    try {
+        const table = await conn.query(sql);
+        return table.toArray().map((row) => row.toJSON());
+    } finally {
+        await conn.close();
+    }
 }
 
 /** Trims a string value; leaves non-strings untouched. */
@@ -109,6 +201,8 @@ function rowColumnRange(row: GridRow): [number, number] | null {
     return min === -1 ? null : [min, max];
 }
 
+
+// Get the column range for a block
 function blockColumnRange(block: GridRow[]): [number, number] {
     let min = Infinity, max = -Infinity;
     for (const row of block) {
@@ -138,7 +232,13 @@ function countNonEmpty(row: GridRow, min: number, max: number): number {
  */
 function splitSheetIntoTables(grid: GridRow[]): { headers: string[]; colOffset: number; rows: GridRow[] }[] {
     const blocks: GridRow[][] = [];
+    
+    // Current is a temporary holding space that contains a table block in question
     let current: GridRow[] = [];
+
+    // For each row of the grid, keep building the same current table block in question. 
+    // When you meet a fully blank row, if there is data in the current block, 
+    // push the block to the blocks array and reset current 
     for (const row of grid) {
         if (isRowBlank(row)) {
             if (current.length > 0) blocks.push(current);
@@ -147,12 +247,21 @@ function splitSheetIntoTables(grid: GridRow[]): { headers: string[]; colOffset: 
             current.push(row);
         }
     }
+
+    // Push anything that remains in current after the loop ends
     if (current.length > 0) blocks.push(current);
+
+    // If there are no blocks return empty array
     if (blocks.length === 0) return [];
 
+    
+    // Start with the first raw block
     const tableBlocks: GridRow[][] = [blocks[0]];
+    
+    // Get the current block range
     let currentRange = blockColumnRange(blocks[0]);
 
+    // For each subsequent block, check if its column range matches the current block's range.
     for (let i = 1; i < blocks.length; i++) {
         const range = blockColumnRange(blocks[i]);
         if (range[0] === currentRange[0] && range[1] === currentRange[1]) {
@@ -163,16 +272,15 @@ function splitSheetIntoTables(grid: GridRow[]): { headers: string[]; colOffset: 
         }
     }
 
+    // Return the table blocks with headers and rows, 
+    // determining if the first row is a real header or just a title/label row based on 
+    // its density compared to the rows below it.
     return tableBlocks.map((block) => {
         const [min, max] = blockColumnRange(block);
         const firstRow = block[0];
         const firstRowDensity = countNonEmpty(firstRow, min, max);
         const maxDataDensity = Math.max(0, ...block.slice(1).map((r) => countNonEmpty(r, min, max)));
 
-        // Treat the first row as a real header only if it's at least as densely
-        // populated as the rows beneath it — a sparser first row (e.g. a lone
-        // title cell like "Summary") is a label/title, not a header, so fall
-        // back to generic column names and keep it as a data row instead.
         const hasRealHeader = firstRowDensity >= maxDataDensity;
         const headers: string[] = [];
         for (let c = min; c <= max; c++) {
@@ -286,18 +394,24 @@ export async function loadWorkbookIntoDuckDb(handle: DuckHandle, file: FileHandl
         const worksheet = workbook.Sheets[sheetName];
         const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1");
         const rawGrid = XLSX.utils.sheet_to_json<unknown[]>(worksheet, {
-            header: 1,
-            defval: null,
-            raw: true,
+            header: 1,  // Header 1 means return it as a list, not that the first row is an actual header — we handle that ourselves in splitSheetIntoTables().
+            defval: null, // Keep null values for empty cells 
+            raw: true, // Return raw values (numbers, dates, etc.) instead of converting to strings
             blankrows: true, // preserve blank rows — they're the signal used to detect table boundaries
         });
         // sheet_to_json's array output is in row order starting at the sheet's
         // used range, so grid index i corresponds to spreadsheet row range.s.r + i.
+       
+        // Attach the original 1-indexed spreadsheet row number
         const grid: GridRow[] = rawGrid.map((cells, i) => ({ cells, sourceRow: range.s.r + i + 1 }));
 
+        // Clean the table name to be a valid DuckDB Table name
         const baseTableName = sanitizeTableName(sheetName);
+
+        // Split a single sheet into individual tables based on blank rows and column ranges
         const detectedTables = splitSheetIntoTables(grid);
 
+        // Load each detected table into DuckDB, naming them baseTableName, baseTableName_2, baseTableName_3, etc.
         for (let tableIndex = 0; tableIndex < detectedTables.length; tableIndex++) {
             const { headers, colOffset, rows } = detectedTables[tableIndex];
             const rawRows = tableRowsFromBlock(headers, colOffset, rows);
@@ -346,6 +460,36 @@ export async function loadStructuredDataIntoDuckDb(handle: DuckHandle, file: Fil
         return loadJsonIntoDuckDb(handle, file);
     }
     return loadWorkbookIntoDuckDb(handle, file);
+}
+
+// Looks up (or lazily creates) the cached DuckDB handle for one uploaded file —
+// the single entry point every structured-data caller (sub-agent tools, the
+// query_structured_data tool, and the attachment preview) should go through.
+export async function getOrCreateDb(file: FileHandle): Promise<DuckHandle> {
+    const key = cacheKey(file);
+    const cached = dbCache.get(key);
+    if (cached) return cached;
+
+    const db = await instantiateDuckDb();
+    const conn = await db.connect();
+    const handle: DuckHandle = { db, conn };
+    // loadStructuredDataIntoDuckDb needs external file access (it loads via
+    // read_json_auto from a file registered in DuckDB-WASM's virtual
+    // filesystem) — so it must run BEFORE we seal the database.
+    await loadStructuredDataIntoDuckDb(handle, file);
+
+    // Seal the database before it's ever exposed to LLM-generated SQL. This is the
+    // real security boundary for query_table: enable_external_access=false
+    // makes DuckDB itself refuse ATTACH/COPY/read_csv/read_parquet/etc. regardless
+    // of what the SQL text looks like, and lock_configuration=true stops a crafted
+    // query from re-enabling it. SQL_DENYLIST in structuredDataSubAgentTools.ts is
+    // now defense-in-depth only, not the primary guard — a regex blocklist can't
+    // keep up with DuckDB's full function surface.
+    await queryAll(handle, "SET enable_external_access=false");
+    await queryAll(handle, "SET lock_configuration=true");
+
+    cacheDb(key, handle);
+    return handle;
 }
 
 /** Small helper reused by the tools file to show the model real example rows. */

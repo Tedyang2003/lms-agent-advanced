@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram id="XaeFAu9DDsBNEtfgd0zg" name="promptPreprocessor">
-        <mxGraphModel dx="1717" dy="755" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+        <mxGraphModel dx="1995" dy="674" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -254,7 +254,7 @@
         </mxGraphModel>
     </diagram>
     <diagram id="JlZ_bLUT4ji5k1Q5p3Pb" name="makeDocPreview">
-        <mxGraphModel dx="2567" dy="755" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+        <mxGraphModel dx="3410" dy="878" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -379,7 +379,7 @@
         </mxGraphModel>
     </diagram>
     <diagram name="makeStructuredDataPreview" id="cicxv0WzdyQF16-33bQp">
-        <mxGraphModel dx="2567" dy="755" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+        <mxGraphModel dx="2845" dy="674" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
             <root>
                 <mxCell id="SB8n8JnxR2BAQlEFwjZ1-0"/>
                 <mxCell id="SB8n8JnxR2BAQlEFwjZ1-1" parent="SB8n8JnxR2BAQlEFwjZ1-0"/>

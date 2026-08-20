@@ -1,5 +1,5 @@
 import type { FileHandle } from "@lmstudio/sdk";
-import { buildStructuredDataTools } from "./structuredDataAgentTools";
+import { buildStructuredDataTools } from "./structuredDataSubAgentTools";
 import { type PluginCapableCtl } from "../../utils/shared/pluginCtl";
 import { runToolSubAgent } from "../shared/runToolSubAgent";
 import {

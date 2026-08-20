@@ -1,53 +1,8 @@
 import { tool, type FileHandle } from "@lmstudio/sdk";
 import { z } from "zod";
-import * as path from "path";
-import { pathToFileURL } from "url";
-import { AsyncDuckDB, VoidLogger, selectBundle } from "@duckdb/duckdb-wasm";
-import Worker from "web-worker";
-import { loadStructuredDataIntoDuckDb, getSampleRows, sanitizeTableName, type DuckHandle } from "../../utils/structuredData/loadStructuredData";
+import { getOrCreateDb, queryAll, getSampleRows } from "../../utils/structuredData/loadStructuredData";
 import { type PluginCapableCtl } from "../../utils/shared/pluginCtl";
 import { LIST_TABLES_DESCRIPTION, QUERY_TABLE_DESCRIPTION } from "../../prompts/structuredData";
-import { STRUCTURED_DATA_DB_CACHE_MAX } from "../../constants";
-
-const dbCache = new Map<string, DuckHandle>();
-
-// DuckDB-WASM's local bundle files — resolved once at module scope (cheap path
-// math, no WASM loaded yet). MANUAL_BUNDLES (not getJsDelivrBundles()) keeps
-// bundle selection fully offline, since this plugin has to run in locked-down
-// environments with no outbound network access.
-const DUCKDB_DIST = path.dirname(require.resolve("@duckdb/duckdb-wasm"));
-const MANUAL_BUNDLES = {
-    mvp: {
-        mainModule: path.resolve(DUCKDB_DIST, "duckdb-mvp.wasm"),
-        mainWorker: path.resolve(DUCKDB_DIST, "duckdb-node-mvp.worker.cjs"),
-    },
-    eh: {
-        mainModule: path.resolve(DUCKDB_DIST, "duckdb-eh.wasm"),
-        mainWorker: path.resolve(DUCKDB_DIST, "duckdb-node-eh.worker.cjs"),
-    },
-};
-
-// Instantiates a fresh DuckDB-WASM engine (its own worker thread + compiled
-// .wasm module), lazily, on first actual query rather than at plugin module-load
-// time. The .wasm module is a multi-MB payload — eagerly loading it up front
-// would block the whole plugin's tool registration (the "loading tools..."
-// sidebar UI) the same way duckdb.node's native load used to before this
-// migration. mupdf already gets this same lazy treatment in ocrPdfParser.ts for
-// the same reason.
-export async function instantiateDuckDb(): Promise<AsyncDuckDB> {
-    const bundle = await selectBundle(MANUAL_BUNDLES);
-    if (!bundle.mainWorker) throw new Error("DuckDB-WASM bundle selection returned no worker script.");
-    // `type: "module"` sidesteps a Windows-path bug shared by the `web-worker`
-    // polyfill and duckdb-wasm's own bundled copy of it: their classic-worker
-    // code path runs the absolute worker path through `path.posix.normalize()`
-    // before treating it as a URL, which mangles "C:\..." paths and throws
-    // "The URL must be of scheme file". The ESM dynamic-import path instead
-    // round-trips it through `pathToFileURL` correctly.
-    const worker = new Worker(pathToFileURL(bundle.mainWorker).href, { type: "module" });
-    const db = new AsyncDuckDB(new VoidLogger(), worker);
-    await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
-    return db;
-}
 
 function bigIntSafe(_key: string, value: unknown): unknown {
     if (typeof value === "bigint") {
@@ -56,33 +11,6 @@ function bigIntSafe(_key: string, value: unknown): unknown {
             : value.toString();
     }
     return value;
-}
-
-function cacheKey(file: FileHandle): string {
-    return file.identifier;
-}
-
-// Closes a handle's connection then terminates its worker/WASM instance. Fire-
-// and-forget (not awaited by callers) — same as the eviction path before this
-// migration, which didn't wait on `.close()` either.
-function closeHandle(handle: DuckHandle): void {
-    handle.conn.close()
-        .then(() => handle.db.terminate())
-        .catch(() => {});
-}
-
-// Evicts the oldest entry once the cache grows past STRUCTURED_DATA_DB_CACHE_MAX,
-// closing its DuckDB connection/worker so handles don't leak.
-function cacheDb(key: string, handle: DuckHandle): void {
-    if (dbCache.size >= STRUCTURED_DATA_DB_CACHE_MAX && !dbCache.has(key)) {
-        const oldestKey = dbCache.keys().next().value;
-        if (oldestKey !== undefined) {
-            const oldest = dbCache.get(oldestKey);
-            if (oldest) closeHandle(oldest);
-            dbCache.delete(oldestKey);
-        }
-    }
-    dbCache.set(key, handle);
 }
 
 function withLogging<T extends (...args: any[]) => Promise<string>>(
@@ -96,56 +24,6 @@ function withLogging<T extends (...args: any[]) => Promise<string>>(
         ctl?.debug(`[TOOL RESULT] ${name}`, result.length > 2000 ? result.slice(0, 2000) + "...(truncated)" : result);
         return result;
     }) as T;
-}
-
-// Closes every cached DuckDB connection and clears the cache. Called on process
-// shutdown (see index.ts) so the plugin process can exit on its own promptly
-// instead of relying on LM Studio's forced-kill fallback, which needs a shell
-// and can fail in locked-down environments (e.g. AppLocker blocking cmd.exe).
-export async function closeAllDatabases(): Promise<void> {
-    const closes = Array.from(dbCache.values()).map(async (handle) => {
-        await handle.conn.close();
-        await handle.db.terminate();
-    });
-    dbCache.clear();
-    await Promise.all(closes);
-}
-
-export async function getOrCreateDb(file: FileHandle): Promise<DuckHandle> {
-    const key = cacheKey(file);
-    const cached = dbCache.get(key);
-    if (cached) return cached;
-
-    const db = await instantiateDuckDb();
-    const conn = await db.connect();
-    const handle: DuckHandle = { db, conn };
-    // loadStructuredDataIntoDuckDb needs external file access (it loads via
-    // read_json_auto from a file registered in DuckDB-WASM's virtual
-    // filesystem) — so it must run BEFORE we seal the database.
-    await loadStructuredDataIntoDuckDb(handle, file);
-
-    // Seal the database before it's ever exposed to LLM-generated SQL. This is the
-    // real security boundary for query_table: enable_external_access=false
-    // makes DuckDB itself refuse ATTACH/COPY/read_csv/read_parquet/etc. regardless
-    // of what the SQL text looks like, and lock_configuration=true stops a crafted
-    // query from re-enabling it. SQL_DENYLIST below is now defense-in-depth only,
-    // not the primary guard — a regex blocklist can't keep up with DuckDB's full
-    // function surface.
-    await queryAll(handle, "SET enable_external_access=false");
-    await queryAll(handle, "SET lock_configuration=true");
-
-    cacheDb(key, handle);
-    return handle;
-}
-
-export async function queryAll(handle: DuckHandle, sql: string): Promise<Record<string, unknown>[]> {
-    const conn = await handle.db.connect();
-    try {
-        const table = await conn.query(sql);
-        return table.toArray().map((row) => row.toJSON());
-    } finally {
-        await conn.close();
-    }
 }
 
 // DuckDB table functions that can read/write the host filesystem — legal
